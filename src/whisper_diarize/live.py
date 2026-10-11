@@ -205,6 +205,9 @@ class LiveSessions:
         session = self._sessions.get(session_id)
         return session if session and session.owner == owner else None
 
+    def count(self) -> int:
+        return len(self._sessions)
+
     def pop(self, session_id: str, owner: str) -> LiveSession | None:
         session = self.get(session_id, owner)
         if session:

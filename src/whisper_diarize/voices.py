@@ -102,14 +102,22 @@ class VoiceBank:
         tmp.replace(self.path)  # atomic, so a reader never sees half a file
 
 
+_EXACT_BONUS = 10.0  # outweighs any similarity, so in exact mode every voice finds a speaker
+_NEVER = -1e6
+
+
 def name_speakers(
-    centroids: dict[str, np.ndarray], voices: dict[str, Voice], threshold: float, exact: bool
+    centroids: dict[str, np.ndarray],
+    voices: dict[str, Voice],
+    threshold: float,
+    exact: bool = False,
 ) -> dict[str, str]:
     """Map diarized speaker labels to voice names.
 
-    Each voice names at most one speaker, picked to maximise the total similarity. Outside exact
-    mode, a speaker also needs `threshold` cosine similarity to get a name. On AMI meetings, with
-    30 s enrollment samples, the right voice scored 0.88-0.92 and the best wrong one 0.31.
+    Each voice names at most one speaker and vice versa, picked to maximise total similarity.
+    Outside exact mode a voice needs `threshold` cosine similarity; in exact mode every voice gets
+    the closest speaker it can. On AMI meetings, with 30 s enrollment samples, the right voice
+    scored 0.88-0.92 and the best wrong one 0.31.
     """
     if not centroids or not voices:
         return {}
@@ -117,5 +125,16 @@ def name_speakers(
     sims = np.array(
         [[unit(centroids[label]) @ voices[n].embedding for n in names] for label in labels]
     )
-    rows, cols = linear_sum_assignment(-sims)
-    return {labels[r]: names[c] for r, c in zip(rows, cols) if exact or sims[r, c] >= threshold}
+    if exact:
+        weights = sims + _EXACT_BONUS
+    else:
+        weights = np.where(sims >= threshold, sims, _NEVER)
+    # One "stays unnamed" column per speaker, so a weak match never has to be made, and can't
+    # distort who gets which name either.
+    weights = np.hstack([weights, np.zeros((len(labels), len(labels)))])
+    rows, cols = linear_sum_assignment(-weights)
+    return {
+        labels[r]: names[c]
+        for r, c in zip(rows, cols)
+        if c < len(names) and weights[r, c] > _NEVER / 2
+    }

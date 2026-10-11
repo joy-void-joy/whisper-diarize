@@ -1,7 +1,8 @@
 import numpy as np
 from fastapi.testclient import TestClient
 
-from whisper_diarize import server
+from whisper_diarize import pipeline, server
+from whisper_diarize.options import Options
 from whisper_diarize.pipeline import Turn, assign_speakers
 from whisper_diarize.voices import VoiceBank, name_speakers, unit
 
@@ -27,11 +28,49 @@ def test_speakers_get_the_closest_voice_above_the_threshold_once(tmp_path):
     bank.add("Ann", vec(1, 0, 0))
     bank.add("Bob", vec(0, 1, 0))
     centroids = {"A": vec(0.9, 0.1, 0), "B": vec(0.8, 0.2, 0.1), "C": vec(0, 0, 1)}
-    # B also resembles Ann, but Ann is taken by the closer A; nobody sounds like C.
-    assert name_speakers(centroids, bank.load(), threshold=0.5, exact=False) == {"A": "Ann"}
-    # Exact mode names everyone it can, threshold or not.
-    exact = name_speakers(centroids, bank.load(), threshold=0.5, exact=True)
-    assert exact["A"] == "Ann" and len(exact) == 2
+    # B also resembles Ann, but Ann is taken by the closer A; nobody sounds like C or Bob.
+    assert name_speakers(centroids, bank.load(), threshold=0.5) == {"A": "Ann"}
+
+
+def test_exact_mode_names_everyone_it_can(tmp_path):
+    bank = VoiceBank(tmp_path / "voices.json")
+    bank.add("Ann", vec(1, 0, 0))
+    bank.add("Bob", vec(0, 1, 0))
+    centroids = {"X": vec(0.45, 0.5, 0.74), "Y": vec(0.1, 0.3, 0.95)}
+    assert name_speakers(centroids, bank.load(), threshold=0.6) == {}
+    # Both are known to be here, so both get a speaker however weak the match, paired for the
+    # highest total similarity (X-Ann 0.45 + Y-Bob 0.3 beats X-Bob 0.5 + Y-Ann 0.1).
+    assert name_speakers(centroids, bank.load(), threshold=0.6, exact=True) == {
+        "X": "Ann",
+        "Y": "Bob",
+    }
+
+
+def test_weak_matches_dont_distort_naming(tmp_path):
+    bank = VoiceBank(tmp_path / "voices.json")
+    bank.add("Ann", vec(1, 0, 0))
+    bank.add("Bob", vec(0, 1, 0))
+    # X is clearly Bob (0.8), Y weakly resembles Bob (0.55) and is otherwise nobody. Pairing Ann
+    # with X (0.6) would give a bigger total, but Ann is below the 0.7 threshold everywhere.
+    centroids = {"X": vec(0.6, 0.8, 0), "Y": vec(0, 0.55, 0.835)}
+    assert name_speakers(centroids, bank.load(), threshold=0.7) == {"X": "Bob"}
+
+
+def test_speaker_count_follows_exact_speakers():
+    assert Options(speakers=["Ann", "Bob"]).speaker_kwargs() == {"num_speakers": 2}
+    assert Options(num_speakers=3).speaker_kwargs()["num_speakers"] == 3
+
+
+def test_absent_and_exact_speakers_filter_the_bank(tmp_path, monkeypatch):
+    bank = VoiceBank(tmp_path / "voices.json")
+    for name, v in (("Ann", vec(1, 0, 0)), ("Bob", vec(0, 1, 0)), ("Cid", vec(0, 0, 1))):
+        bank.add(name, v)
+    monkeypatch.setattr(pipeline, "VoiceBank", lambda: bank)
+    centroids = {"X": vec(1, 0, 0), "Y": vec(0, 1, 0), "Z": vec(0, 0, 1)}
+    assert pipeline.identify(centroids, Options()) == {"X": "Ann", "Y": "Bob", "Z": "Cid"}
+    assert pipeline.identify(centroids, Options(absent=["Bob"])) == {"X": "Ann", "Z": "Cid"}
+    exact = Options(speakers=["Ann", "Cid"])
+    assert pipeline.identify(centroids, exact) == {"X": "Ann", "Z": "Cid"}
 
 
 def test_named_and_unnamed_speakers():

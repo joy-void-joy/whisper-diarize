@@ -60,6 +60,13 @@ export class Item {
     if (print) this.voiceprints[name] = print
   }
 
+  /** Give just these sentences to `speaker` (fixing a passage diarization got wrong). */
+  reassign(indices: number[], speaker: string) {
+    if (!this.sentences) return
+    const chosen = new Set(indices)
+    this.sentences = this.sentences.map((s, i) => (chosen.has(i) ? { ...s, speaker } : s))
+  }
+
   get text() {
     return toText(paragraphs(this.shown))
   }

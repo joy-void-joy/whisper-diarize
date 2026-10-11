@@ -41,14 +41,18 @@
   function refreshVoices() {
     api.voices().then((v) => {
       voices = v
-      prefs.speakers = prefs.speakers.filter((name) => v.some((voice) => voice.name === name))
+      prefs.absent = prefs.absent.filter((name) => v.some((voice) => voice.name === name))
     }, () => {})
   }
 
-  /** Options for a new job or recording: the settings form, plus "only these speakers". */
+  /** Options for a new job or recording: the settings form, plus who isn't (or only is) in it. */
   function jobOptions(): Overrides {
-    const speakers = prefs.onlyTheseSpeakers ? prefs.speakers : []
-    return speakers.length ? { ...prefs.overrides, speakers } : prefs.overrides
+    const ticked = voices.map((v) => v.name).filter((name) => !prefs.absent.includes(name))
+    return {
+      ...prefs.overrides,
+      absent: prefs.absent,
+      speakers: prefs.onlyThese ? ticked : [],
+    }
   }
 
   $effect(() => {

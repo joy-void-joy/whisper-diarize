@@ -69,15 +69,21 @@ Server settings are environment variables (see `src/whisper_diarize/config.py`),
 
 Every job compares each detected speaker with the saved voices. A speaker who matches one closely
 enough (`voice_threshold`, 0.5 by default) is shown under that name. Everyone else stays
-"Speaker N", and saved voices that aren't in the recording are simply ignored. With "Only these
-speakers" (web UI) or `--speaker NAME` (CLI, repeat for each), the recording is split into exactly
-that many speakers and each one gets one of those names. That only works if each of them really
-speaks: otherwise someone else gets the missing person's name.
+"Speaker N", and saved voices that aren't in the recording are simply ignored.
+
+- **Untick a voice** in the sidebar (`--absent NAME` in the CLI) when that person isn't in the
+  recording, so their name is never used. Everything else stays automatic.
+- **"Only the ticked speakers are in the recording"** (`--speaker NAME`, repeated for each) splits
+  the recording into exactly that many speakers and gives each one of those names. That only
+  works if each of them really speaks: otherwise someone else gets the missing person's name.
+- **Click a speaker's name** in a transcript to name them everywhere and save their voice, or
+  choose "Just this part" to fix who said particular sentences.
 
 ```sh
 uv run whisper-diarize voices add Alice alice-hello.m4a   # 10-30 s of them talking, mostly alone
 uv run whisper-diarize voices list
 uv run whisper-diarize transcribe call.m4a --speaker Alice --speaker Bob
+uv run whisper-diarize transcribe meeting.m4a --absent Carol
 ```
 
 Adding another sample to an existing name averages them, which helps when recordings come from
@@ -147,6 +153,16 @@ whisper.example.com {
 	}
 }
 ```
+
+To restart (e.g. after an update) without cutting anyone off, wait until nothing is in progress:
+
+```sh
+uv run whisper-diarize status          # "idle" or e.g. "busy: 1 transcribing, 2 queued"
+uv run whisper-diarize status --wait   # returns once idle; then restart
+```
+
+Pages that are merely open don't count: they hold nothing on the server and keep working after
+a restart. Only work in progress (queued or running jobs, uploads, live recordings) would be lost.
 
 One server handles both the UI and `/api`, so no separate route is needed. There are no
 WebSockets or long-lived streams, Caddy sets no upload size limit by default, and its HTTPS

@@ -94,28 +94,33 @@
     onchange()
   }
 
-  function tick(voice: string, on: boolean) {
-    prefs.speakers = on ? [...prefs.speakers, voice] : prefs.speakers.filter((n) => n !== voice)
+  const ticked = $derived(voices.filter((v) => !prefs.absent.includes(v.name)).length)
+
+  function tick(voice: string, inRecording: boolean) {
+    prefs.absent = inRecording
+      ? prefs.absent.filter((n) => n !== voice)
+      : [...prefs.absent, voice]
   }
 </script>
 
 <section class="card">
   <h3>Voices</h3>
-  <p class="hint">Speakers who sound like a saved voice get its name.</p>
+  <p class="hint">
+    Speakers who sound like a saved voice get its name. Untick people who aren't in the recording.
+  </p>
 
   {#if voices.length}
     <ul>
       {#each voices as voice (voice.name)}
-        <li class:off={prefs.onlyTheseSpeakers && !prefs.speakers.includes(voice.name)}>
-          <label>
-            {#if prefs.onlyTheseSpeakers}
-              <input
-                type="checkbox"
-                checked={prefs.speakers.includes(voice.name)}
-                onchange={(e) => tick(voice.name, e.currentTarget.checked)}
-              />
-            {/if}
-            {voice.name}
+        {@const inRecording = !prefs.absent.includes(voice.name)}
+        <li class:off={!inRecording}>
+          <label class="name" title={inRecording ? 'Untick if they are not in the recording' : 'Not in the recording: never used'}>
+            <input
+              type="checkbox"
+              checked={inRecording}
+              onchange={(e) => tick(voice.name, e.currentTarget.checked)}
+            />
+            <span>{voice.name}</span>
             {#if voice.samples > 1}<small title="samples">×{voice.samples}</small>{/if}
           </label>
           <button
@@ -129,17 +134,15 @@
         </li>
       {/each}
     </ul>
-    <label class="only">
-      <input type="checkbox" bind:checked={prefs.onlyTheseSpeakers} />
+    <label class="only" class:disabled={!ticked}>
+      <input type="checkbox" bind:checked={prefs.onlyThese} disabled={!ticked} />
       <span>
-        Only these speakers are in the recording
-        {#if prefs.onlyTheseSpeakers}
-          <small>
-            {prefs.speakers.length
-              ? `Split into exactly ${prefs.speakers.length}.`
-              : 'Tick who is in it.'}
-          </small>
-        {/if}
+        Only the ticked speakers are in the recording
+        <small>
+          {prefs.onlyThese
+            ? `Split into exactly ${ticked}.`
+            : 'Otherwise others are still detected as "Speaker N".'}
+        </small>
       </span>
     </label>
   {/if}
@@ -207,10 +210,26 @@
   li.off {
     opacity: 0.5;
   }
-  li label {
+  li {
+    gap: 0.4rem;
+  }
+  .name {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 0.4rem;
+  }
+  .name span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  li.off .name span {
+    text-decoration: line-through;
+  }
+  .only.disabled {
+    opacity: 0.6;
   }
   .remove {
     border: none;

@@ -13,6 +13,8 @@ import asyncio
 import io
 import logging
 import secrets
+import time
+from dataclasses import dataclass, field
 from typing import Annotated
 
 import torch
@@ -36,6 +38,26 @@ pool = ModelPool()
 jobs = JobQueue(pool)
 live = LiveSessions(pool)
 voice_bank = VoiceBank()
+
+
+@dataclass
+class Activity:
+    """What's going on right now, so you can pick a moment to restart (`whisper-diarize status`).
+    Open pages hold nothing on the server: only work in progress is lost on a restart."""
+
+    last_request: float = field(default_factory=time.monotonic)
+    uploads: int = 0
+
+
+activity = Activity()
+
+
+# Registered before require_proxy_secret, so it runs inside it: rejected requests don't count.
+@app.middleware("http")
+async def note_activity(request: Request, call_next):
+    if request.url.path.startswith("/api/") and request.url.path != "/api/status":
+        activity.last_request = time.monotonic()
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -62,6 +84,15 @@ async def read_body(request: Request) -> bytes:
         if len(body) > limit:
             raise HTTPException(413, f"Audio larger than {settings.max_upload_mb} MB")
     return bytes(body)
+
+
+@app.get("/api/status")
+def status() -> dict:
+    """Whether anyone is using the server right now (see `whisper-diarize status`). Counts only,
+    nothing about who or what."""
+    counts = jobs.counts() | {"uploading": activity.uploads, "recording": live.count()}
+    busy = any(counts[k] for k in ("uploading", "queued", "running", "recording"))
+    return {"busy": busy, **counts, "idle_s": round(time.monotonic() - activity.last_request)}
 
 
 @app.get("/api/config")
@@ -93,7 +124,11 @@ JobDep = Annotated[Job, Depends(get_job)]
 async def upload_audio(job: JobDep, request: Request) -> dict:
     if job.state != JobState.UPLOADING:
         raise HTTPException(409, "Audio already uploaded")
-    data = await read_body(request)
+    activity.uploads += 1
+    try:
+        data = await read_body(request)
+    finally:
+        activity.uploads -= 1
     try:
         audio = await asyncio.to_thread(pipeline.load_audio, io.BytesIO(data))
     except Exception as e:

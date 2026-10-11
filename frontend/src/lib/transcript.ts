@@ -5,6 +5,8 @@ export interface Paragraph {
   end: number
   speaker: string | null
   text: string
+  /** Positions of its sentences in the transcript. */
+  indices: number[]
 }
 
 /** Same as Transcript.paragraphs(): consecutive sentences by the same speaker, merged; without
@@ -13,16 +15,17 @@ const PARAGRAPH_PAUSE_S = 2
 
 export function paragraphs(sentences: Sentence[]): Paragraph[] {
   const merged: Paragraph[] = []
-  for (const s of sentences) {
+  sentences.forEach((s, i) => {
     const last = merged.at(-1)
     const pause = last && last.speaker === null && s.start - last.end >= PARAGRAPH_PAUSE_S
     if (last && last.speaker === s.speaker && !pause) {
       last.end = s.end
       last.text += ` ${s.text}`
+      last.indices.push(i)
     } else {
-      merged.push({ ...s })
+      merged.push({ ...s, indices: [i] })
     }
-  }
+  })
   return merged
 }
 

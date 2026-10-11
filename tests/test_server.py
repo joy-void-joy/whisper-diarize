@@ -35,3 +35,25 @@ def test_jobs_are_private_to_their_user():
     assert client.get(f"/api/jobs/{job_id}", headers={"X-Remote-User": "alice"}).status_code == 200
     assert client.get(f"/api/jobs/{job_id}", headers={"X-Remote-User": "bob"}).status_code == 404
     assert client.delete(f"/api/jobs/{job_id}", headers={"X-Remote-User": "bob"}).status_code == 404
+
+
+def test_status_counts_work_in_progress_but_not_rejected_requests(monkeypatch):
+    client = TestClient(server.app)
+    state = client.get("/api/status").json()
+    assert state["busy"] is False and state["recording"] == 0
+
+    monkeypatch.setattr(server.settings, "proxy_secret", "s3cret")
+    before = server.activity.last_request
+    assert client.get("/api/config").status_code == 403
+    assert server.activity.last_request == before
+
+    monkeypatch.setattr(server.activity, "uploads", 1)
+    state = client.get("/api/status", headers={"X-Proxy-Secret": "s3cret"}).json()
+    assert state["busy"] is True and state["uploading"] == 1
+
+
+def test_job_counts():
+    queue = JobQueue(ModelPool(), start=False)
+    queue.submit(queue.create("alice", Options()), np.zeros(16000, np.float32))
+    queue.create("bob", Options())  # created, never uploaded: not work in progress
+    assert queue.counts() == {"queued": 1, "running": 0, "unclaimed": 0}

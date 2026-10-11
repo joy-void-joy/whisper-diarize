@@ -61,9 +61,13 @@ def transcribe(
         list[str] | None,
         typer.Option(
             "--speaker",
-            help="Exactly these saved voices are in the recording (repeat for each). Without "
-            "it, any saved voice that matches a speaker still names them.",
+            help="Exactly these saved voices are in the recording (repeat for each). Without it, "
+            "any saved voice that matches a speaker names them.",
         ),
+    ] = None,
+    absent: Annotated[
+        list[str] | None,
+        typer.Option(help="A saved voice that isn't in the recording (repeat for each)."),
     ] = None,
     prompt: Annotated[str | None, typer.Option(help="Initial prompt (names, jargon).")] = None,
     device: Annotated[str, typer.Option(help="auto, cuda or cpu.")] = "auto",
@@ -95,6 +99,7 @@ def transcribe(
                 "diarize": diarize,
                 "num_speakers": num_speakers,
                 "speakers": speakers or [],
+                "absent": absent or [],
                 "initial_prompt": prompt,
                 "device": device,
                 **parse_overrides(set_ or []),
@@ -202,6 +207,59 @@ def voices_rename(old: str, new: str) -> None:
 
     if not VoiceBank().rename(old, new):
         raise typer.BadParameter(f"no voice called {old!r}, or {new!r} is taken")
+
+
+@app.command()
+def status(
+    wait: Annotated[
+        bool, typer.Option(help="Wait until nobody is using the server, then exit.")
+    ] = False,
+    url: Annotated[str, typer.Option(help="Server to ask.")] = (
+        f"http://{settings.host}:{settings.port}"
+    ),
+) -> None:
+    """Is anyone using the server? Exits 0 when idle, 1 when busy: check before restarting."""
+    import time
+    import urllib.request
+
+    headers = {"X-Proxy-Secret": settings.proxy_secret} if settings.proxy_secret else {}
+    last_seen = None
+    while True:
+        try:
+            request = urllib.request.Request(f"{url}/api/status", headers=headers)
+            with urllib.request.urlopen(request, timeout=5) as response:
+                state = json.load(response)
+        except OSError as e:
+            console.print(f"[red]Can't reach {url}: {e}[/red]")
+            raise typer.Exit(2) from e
+        # Only print when something other than the "last request" clock changed.
+        seen = {k: v for k, v in state.items() if k != "idle_s"}
+        if seen != last_seen:
+            print(describe_status(state), flush=True)
+            last_seen = seen
+        if not state["busy"]:
+            return
+        if not wait:
+            raise typer.Exit(1)
+        time.sleep(3)
+
+
+def describe_status(state: dict[str, Any]) -> str:
+    idle = state["idle_s"]
+    ago = f"{idle // 60} min" if idle >= 120 else f"{idle} s"
+    if not state["busy"]:
+        return f"idle (last request {ago} ago)"
+    parts = [
+        f"{state[key]} {label}"
+        for key, label in [
+            ("running", "transcribing"),
+            ("queued", "queued"),
+            ("uploading", "uploading"),
+            ("recording", "recording live"),
+        ]
+        if state[key]
+    ]
+    return f"busy: {', '.join(parts)} (last request {ago} ago)"
 
 
 @app.command()

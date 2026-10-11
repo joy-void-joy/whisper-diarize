@@ -128,6 +128,17 @@ class JobQueue:
     def exists(self, job: Job) -> bool:
         return self._jobs.get(job.id) is job
 
+    def counts(self) -> dict[str, int]:
+        states = [job.state for job in list(self._jobs.values())]
+        finished = (JobState.DONE, JobState.FAILED, JobState.CANCELLED)
+        return {
+            "queued": states.count(JobState.QUEUED),
+            "running": states.count(JobState.RUNNING),
+            # Finished but not collected yet: a browser that's still open picks it up within
+            # seconds, otherwise it expires after result_ttl_s.
+            "unclaimed": sum(state in finished for state in states),
+        }
+
     def remove(self, job: Job) -> None:
         job.cancel.set()
         with self._wakeup:

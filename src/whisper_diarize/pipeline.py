@@ -143,9 +143,9 @@ def identify(centroids: dict[str, np.ndarray], options: Options) -> dict[str, st
     """Voice-bank names for diarized speaker labels (see voices.name_speakers)."""
     if not options.identify_speakers:
         return {}
-    voices = VoiceBank().load()
+    voices = {n: v for n, v in VoiceBank().load().items() if n not in options.absent}
     if options.speakers:
-        voices = {name: v for name, v in voices.items() if name in options.speakers}
+        voices = {n: v for n, v in voices.items() if n in options.speakers}
     return name_speakers(centroids, voices, options.voice_threshold, exact=bool(options.speakers))
 
 

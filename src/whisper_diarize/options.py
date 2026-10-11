@@ -102,6 +102,9 @@ class Options(BaseModel):
         ge=0,
         le=1,
     )
+    absent: list[str] = _field(
+        [], "Saved voices that aren't in the recording: never used.", "voices"
+    )
     speakers: list[str] = _field(
         [],
         "Exactly these saved voices are in the recording: split it into that many speakers and "
@@ -194,6 +197,7 @@ class Options(BaseModel):
                 "speaker_per_sentence",
                 "identify_speakers",
                 "voice_threshold",
+                "absent",
                 "speakers",
                 "device",
                 "compute_type",

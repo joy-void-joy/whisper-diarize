@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from './api'
   import type { Item } from './items.svelte'
-  import { clock, download, paragraphs, speakerColors, toSrt } from './transcript'
+  import { clock, download, paragraphs, speakerColors, toSrt, type Paragraph } from './transcript'
 
   let {
     item,
@@ -20,30 +20,45 @@
   const paras = $derived(paragraphs(item.shown))
   const colors = $derived(speakerColors(item.shown))
 
-  // Naming a speaker: saves their voiceprint to the voice bank and renames them here.
-  let naming = $state<string | null>(null)
+  // Clicking a speaker: name them everywhere (saving their voice to the voice bank), or fix
+  // who said just part of a paragraph.
+  let naming = $state<{ speaker: string; indices: number[] } | null>(null)
   let draft = $state('')
+  let scope = $state<'everywhere' | 'part'>('everywhere')
+  let picked = $state<number[]>([])
   let namingError = $state<string | null>(null)
 
-  function startNaming(speaker: string) {
-    naming = speaker
-    draft = /^Speaker \d+$/.test(speaker) ? '' : speaker
+  const otherSpeakers = $derived([...colors.keys()].filter((s) => s !== naming?.speaker))
+  const suggestions = $derived([...new Set([...otherSpeakers, ...voiceNames])])
+  const savesVoice = $derived(scope === 'everywhere' && !!naming && !!item.voiceprints[naming.speaker])
+
+  function startNaming(p: Paragraph) {
+    if (!p.speaker) return
+    naming = { speaker: p.speaker, indices: p.indices }
+    draft = /^Speaker \d+$/.test(p.speaker) ? '' : p.speaker
+    scope = 'everywhere'
+    picked = [...p.indices]
     namingError = null
   }
 
   async function saveName() {
-    const speaker = naming
     const name = draft.trim()
-    if (!speaker || !name) return
-    try {
-      await api.saveVoice(name, item.voiceprints[speaker])
-    } catch (e) {
-      namingError = e instanceof Error ? e.message : String(e)
-      return
+    if (!naming || !name) return
+    if (scope === 'part') {
+      item.reassign(picked, name)
+    } else {
+      if (savesVoice) {
+        try {
+          await api.saveVoice(name, item.voiceprints[naming.speaker])
+        } catch (e) {
+          namingError = e instanceof Error ? e.message : String(e)
+          return
+        }
+        onvoicesaved()
+      }
+      item.rename(naming.speaker, name)
     }
-    item.rename(speaker, name)
     naming = null
-    onvoicesaved()
   }
   const stem = $derived(item.title.replace(/\.[^.]+$/, '') || 'transcript')
 
@@ -98,19 +113,52 @@
   </div>
 
   {#if naming}
+    {@const who = naming.speaker}
     <form class="naming" onsubmit={(e) => (e.preventDefault(), saveName())}>
-      <span>Who is <b style="color: {colors.get(naming)}">{naming}</b>?</span>
+      <span>Who is <b style="color: {colors.get(who)}">{who}</b>?</span>
       <!-- svelte-ignore a11y_autofocus -->
       <input bind:value={draft} list="voice-names-{item.key}" placeholder="Name" autofocus />
       <datalist id="voice-names-{item.key}">
-        {#each voiceNames as n}<option value={n}></option>{/each}
+        {#each suggestions as n}<option value={n}></option>{/each}
       </datalist>
-      <button type="submit" disabled={!draft.trim()}>Save voice</button>
+      <button type="submit" disabled={!draft.trim() || (scope === 'part' && !picked.length)}>
+        {scope === 'part' ? 'Change' : savesVoice ? 'Save voice' : 'Rename'}
+      </button>
       <button type="button" onclick={() => (naming = null)}>Cancel</button>
+      <div class="scope">
+        <label><input type="radio" bind:group={scope} value="everywhere" /> Everywhere</label>
+        <label>
+          <input
+            type="radio"
+            bind:group={scope}
+            value="part"
+            onchange={() => draft === who && (draft = '')}
+          />
+          Just this part
+        </label>
+      </div>
+      {#if scope === 'part' && naming.indices.length > 1}
+        <ul class="sentences">
+          {#each naming.indices as i (i)}
+            <li>
+              <label>
+                <input type="checkbox" bind:group={picked} value={i} />
+                {item.shown[i]?.text}
+              </label>
+            </li>
+          {/each}
+        </ul>
+      {/if}
       <small>
-        {voiceNames.includes(draft.trim())
-          ? `Adds this as another sample of ${draft.trim()}'s voice.`
-          : 'Saved to the voice bank, so they get named automatically next time.'}
+        {#if scope === 'part'}
+          Only {naming.indices.length > 1 ? 'the ticked sentences' : 'this paragraph'} change{naming.indices.length > 1 ? '' : 's'}; {who} stays {who} elsewhere.
+        {:else if savesVoice}
+          {voiceNames.includes(draft.trim())
+            ? `Renames ${who} everywhere and adds this as another sample of ${draft.trim()}'s voice.`
+            : `Renames ${who} everywhere and saves the voice, so they get named automatically next time.`}
+        {:else}
+          Renames {who} everywhere in this transcript.
+        {/if}
       </small>
       {#if namingError}<p class="error">{namingError}</p>{/if}
     </form>
@@ -126,12 +174,12 @@
   {#each paras as p}
     <p>
       <span class="time">{clock(p.start)}</span>
-      {#if p.speaker && item.voiceprints[p.speaker] && !item.active}
+      {#if p.speaker && item.sentences && !item.active}
         <button
           class="speaker"
           style="color: {colors.get(p.speaker)}"
-          title="Name this speaker"
-          onclick={() => startNaming(p.speaker ?? '')}>{p.speaker}</button
+          title="Name this speaker, or fix who said this part"
+          onclick={() => startNaming(p)}>{p.speaker}</button
         >
       {:else if p.speaker}
         <b style="color: {colors.get(p.speaker)}">{p.speaker}</b>
@@ -218,5 +266,27 @@
   .naming small {
     flex-basis: 100%;
     margin: 0;
+  }
+  .scope {
+    flex-basis: 100%;
+    display: flex;
+    gap: 1rem;
+    font-size: 0.9rem;
+  }
+  .sentences {
+    flex-basis: 100%;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 14rem;
+    overflow-y: auto;
+  }
+  .sentences li {
+    padding: 0.15rem 0;
+  }
+  .sentences label {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
   }
 </style>
