@@ -50,9 +50,8 @@ uvx hf auth login
 ## Use
 
 ```sh
-bun dev                                      # web UI + API on http://127.0.0.1:5801, everything
-                                             # rebuilt/reloaded on code changes
-uv run whisper-diarize serve                 # same without the reloading (after `bun run build`)
+bun start                                    # web UI + API on http://127.0.0.1:5801
+bun dev                                      # same, but rebuilds/restarts on every code change
 
 uv run whisper-diarize transcribe a.m4a b.mp4 --language fr -f txt -f srt
 uv run whisper-diarize transcribe --files-from toconvert --out-dir transcripts
@@ -132,7 +131,7 @@ each user only sees their own jobs. Keep it on 127.0.0.1 (the default) and reach
 Caddy machine through an SSH reverse tunnel:
 
 ```sh
-uv run whisper-diarize serve                  # listens on 127.0.0.1:5801
+bun start                                     # listens on 127.0.0.1:5801
 ssh -N -R 5801:127.0.0.1:5801 your-server     # or a RemoteForward line for autossh
 ```
 
@@ -168,7 +167,8 @@ doesn't send Basic credentials on WebSocket connections.
 ## Development
 
 `bun dev` (= `uv run whisper-diarize serve --dev`) rebuilds the UI on every change (refresh
-the page) and restarts the server when Python code changes. Jobs in progress are lost on restart.
+the page) and restarts the server when Python code changes. Jobs in progress are lost on restart,
+so use `bun start` for an instance other people rely on.
 For hot module reloading while working on the UI, also run `cd frontend && bun run dev`. It
 serves on Vite's port and proxies `/api` to :5801.
 
