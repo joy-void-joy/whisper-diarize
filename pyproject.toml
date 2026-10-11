@@ -1,0 +1,49 @@
+[project]
+name = "whisper-diarize"
+version = "0.2.0"
+description = "Transcription + speaker diarization (faster-whisper + pyannote) with a small web UI"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "^,^", email = "joy.void.joy@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "ctranslate2>=4.8.2",
+    "av<19",  # faster-whisper 1.2 passes av.open(metadata_errors=...), removed in PyAV 19
+    "pyannote-audio>=4.0.7",
+    "torch>=2.11",
+    "torchaudio>=2.11",
+    "numpy>=2",
+    "fastapi[standard]>=0.118",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.10",
+    "typer>=0.19",
+    "rich>=14",
+]
+
+[project.scripts]
+whisper-diarize = "whisper_diarize.cli:app"
+
+[dependency-groups]
+dev = ["ruff", "pyright", "pytest"]
+
+# CTranslate2 wheels are built against CUDA 12, so torch has to come from a CUDA 12 index
+# to share the same cuBLAS/cuDNN libraries.
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100

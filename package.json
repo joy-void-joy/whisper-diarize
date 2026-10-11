@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "scripts": {
+    "dev": "uv run whisper-diarize serve --dev",
+    "build": "cd frontend && bun install && bun run build"
+  }
+}
